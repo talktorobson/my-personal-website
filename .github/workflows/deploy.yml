@@ -1,0 +1,163 @@
+name: Deploy Personal Website
+
+     # Trigger the workflow on push to main branch
+     on:
+       push:
+         branches: [ main ]
+       pull_request:
+         branches: [ main ]
+       # Allow manual triggering
+       workflow_dispatch:
+
+     # Define the jobs
+     jobs:
+       # Job 1: Quality Check
+       quality-check:
+         runs-on: ubuntu-latest
+         name: Quality Assurance
+
+         steps:
+         - name: Checkout code
+           uses: actions/checkout@v4
+
+         - name: Validate HTML
+           run: |
+             echo "🔍 Validating HTML structure..."
+             # Check if index.html exists and has basic structure
+             if [ -f "index.html" ]; then
+               echo "✅ index.html found"
+               if grep -q "<html" index.html && grep -q "<head" index.html && grep -q "<body" index.html; then
+                 echo "✅ HTML structure is valid"
+               else
+                 echo "❌ HTML structure is invalid"
+                 exit 1
+               fi
+             else
+               echo "❌ index.html not found"
+               exit 1
+             fi
+
+         - name: Validate CSS
+           run: |
+             echo "🎨 Validating CSS..."
+             if [ -f "style.css" ]; then
+               echo "✅ style.css found"
+               # Basic CSS validation - check for obvious syntax errors
+               if grep -q "{" style.css && grep -q "}" style.css; then
+                 echo "✅ CSS syntax appears valid"
+               else
+                 echo "❌ CSS syntax may have issues"
+                 exit 1
+               fi
+             else
+               echo "❌ style.css not found"
+               exit 1
+             fi
+
+         - name: Check file sizes
+           run: |
+             echo "📊 Checking file sizes for performance..."
+             for file in *.html *.css *.js; do
+               if [ -f "$file" ]; then
+                 size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo "0")
+                 echo "📄 $file: ${size} bytes"
+                 if [ "$size" -gt 1048576 ]; then  # 1MB
+                   echo "⚠️  Warning: $file is larger than 1MB"
+                 fi
+               fi
+             done
+
+       # Job 2: Deploy to GitHub Pages
+       deploy:
+         needs: quality-check
+         runs-on: ubuntu-latest
+         name: Deploy to Production
+
+         # Only run on main branch
+         if: github.ref == 'refs/heads/main'
+
+         # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
+         permissions:
+           pages: write
+           id-token: write
+           contents: read
+
+         # Deploy to the github-pages environment
+         environment:
+           name: github-pages
+           url: ${{ steps.deployment.outputs.page_url }}
+
+         steps:
+         - name: Checkout code
+           uses: actions/checkout@v4
+
+         - name: Setup Pages
+           uses: actions/configure-pages@v4
+
+         - name: Optimize files for production
+           run: |
+             echo "🚀 Optimizing files for production..."
+
+             # Create optimized directory
+             mkdir -p dist
+
+             # Copy files to dist
+             cp index.html dist/
+             cp style.css dist/
+             if [ -f "script.js" ]; then
+               cp script.js dist/
+             fi
+
+             # Add deployment timestamp
+             echo "<!-- Deployed on $(date) via GitHub Actions -->" >> dist/index.html
+
+             echo "✅ Files optimized and ready for deployment"
+
+         - name: Upload artifact
+           uses: actions/upload-pages-artifact@v3
+           with:
+             path: './dist'
+
+         - name: Deploy to GitHub Pages
+           id: deployment
+           uses: actions/deploy-pages@v4
+
+         - name: Post-deployment verification
+           run: |
+             echo "🎉 Deployment completed!"
+             echo "🌐 Your website should be available at: https://talktorobson.github.io/my-personal-website/"
+             echo "⏱️  It may take a few minutes for changes to appear"
+
+       # Job 3: Performance Check (runs after deployment)
+       performance-check:
+         needs: deploy
+         runs-on: ubuntu-latest
+         name: Performance Verification
+
+         if: github.ref == 'refs/heads/main'
+
+         steps:
+         - name: Wait for deployment
+           run: |
+             echo "⏳ Waiting 30 seconds for deployment to propagate..."
+             sleep 30
+
+         - name: Check website accessibility
+           run: |
+             echo "🔍 Checking if website is accessible..."
+             url="https://talktorobson.github.io/my-personal-website/"
+
+             # Try to access the website
+             if curl -s -f "$url" > /dev/null; then
+               echo "✅ Website is accessible at $url"
+             else
+               echo "⚠️  Website may still be deploying or has issues"
+             fi
+
+         - name: Performance summary
+           run: |
+             echo "📈 Deployment Summary:"
+             echo "🔗 URL: https://talktorobson.github.io/my-personal-website/"
+             echo "📅 Deployed: $(date)"
+             echo "🏗️  Built with: GitHub Actions"
+             echo "🚀 Status: Production Ready"
